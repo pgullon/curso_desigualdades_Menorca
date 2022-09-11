@@ -13,6 +13,7 @@ install.packages("PHEindicatormethods")
 install.packages("qwraps2")
 
 
+
 ### CARGAR LOS PAQUETES ###
 
 # Una vez que tenemos instalados los paquetes, necesitamos cargarlos en nuestra librería para poder empezar a trabajar.
