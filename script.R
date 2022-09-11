@@ -9,6 +9,9 @@
 install.packages("tidyverse")
 install.packages("broom")
 install.packages("scales")
+install.packages("PHEindicatormethods")
+install.packages("qwraps2")
+
 
 ### CARGAR LOS PAQUETES ###
 
@@ -19,6 +22,10 @@ install.packages("scales")
 library (tidyverse)
 library(broom)
 library(scales)
+library(PHEindicatormethods)
+library(qwraps2)
+
+
 
 rm(list=ls()) # Esta función sirve para eliminar los datos y objetos que pudiéramos tener cargados de sesiones previas
 
@@ -56,7 +63,7 @@ dta <-  dta %>% # El '%>%' nos permite indicar que las siguientes funciones se a
 
 # Edad: la tenemos que calcular porque no la coge como numérica
 dta <- dta %>%
-  mutate(edad=as.numeric(EDADa)) %>%  # Como carga la variable como categórica (¿?) necesitamos crear una variable que interprete EDADa como numérica ('as.numeric')
+  mutate(edad=as.numeric(EDADa)) # Como carga la variable como texto necesitamos crear una variable que interprete EDADa como numérica ('as.numeric')
   
 # Clase social: mandamos a valores perdidos las categorías 8 y 9 (correspondiente a NS/NC)
 dta <- dta %>%
@@ -140,7 +147,7 @@ coef_model1 <- model1 %>% tidy %>%
 coef_model1
 
 
-
+#Este código nos vale para hacer la escala logarítmica en la figura
 base_breaks <- function(n = 10){
   function(x) {
     axisTicks(log10(range(x, na.rm = TRUE)), log = TRUE, n = n)
@@ -149,7 +156,7 @@ base_breaks <- function(n = 10){
 
 
 
-
+#Aquí hacemos la figura!
 figura_modelo <-ggplot(coef_model1, aes(x=term, y=PR, group=group)) + 
   geom_hline(yintercept = 1, lty=2)+
   geom_line()+
@@ -162,5 +169,189 @@ figura_modelo
 ggsave(filename = "figura_modelo.pdf", plot = figura_modelo, width=10, height=7.5)
 
 
+
+
+
+## MEDIDAS DE ASOCIACIÓN DE LAS DESIGUALDADES SOCIALES EN SALUD ## 
+
+#RELATIVE INDEX OF INEQUALITY (RII) Y SLOPE INDEX OF INEQUALITY (SII)
+#Primero calculamos variaciones de clase social que usaremos según el cálculo
+dta <- dta %>%
+  mutate(clase_cont=as.numeric(clase)) %>% #clase en continua para algunas de las medidas
+  mutate(clase_inv=(clase_cont-7)*(-1)) %>% #clase invertida (clase 6 pasa a ser clase 1)
+  mutate(clase_tr=rescale(clase_cont)) #En esta la clase en lugar de 1 a 6 va de 0 a 1
+
+
+# MÉTODO 1: PAQUETE PHE
+# Vamos a preparar la base de datos para hacer el RII y el SII con el paquete phe
+# Esta base va a ser una base agrupando las prevalencias por clase
+# Usamos la clase invertida, donde el 6 representa la clase más alta, y el 1 a trabajadorxs manuales
+phe_data <- dta %>% 
+  group_by(clase_inv, SEXOa) %>% 
+  summarise(pop=n(),
+             mean.ci = list(mean_ci(diabetes))) %>%
+  unnest_wider(mean.ci) %>%
+  rename(diabetes=mean) %>%
+  mutate(diabetes=as.numeric(diabetes), 
+         lcl=as.numeric(lcl), 
+         ucl=as.numeric(ucl))
+
+phe <- phe_data %>%
+  group_by(SEXOa) %>%
+  phe_sii(quantile=clase_inv, 
+          population=pop, 
+          value=diabetes, 
+          value_type = 2, 
+          lower_cl = lcl, 
+          upper_cl= ucl,
+          multiplier = -100, 
+          rii=T) 
+phe <- phe %>%
+  rename(sii_infci=sii_lower95_0cl, 
+         sii_supci=sii_upper95_0cl, 
+         rii_infci=rii_lower95_0cl, 
+         rii_supci=rii_upper95_0cl) %>%
+  select(sii, sii_infci, sii_supci, 
+         rii, rii_infci, rii_supci) %>%
+  mutate(method="phe")
+phe
+
+
+# MÉTODO 2: HACIENDO REGRESIONES
+#Regresiones de Poisson multiplicativas para el RII
+model2_hombres<-glm(formula=diabetes~clase_tr, data=subset(dta,SEXOa==1), 
+            family=poisson(link="log"))
+coef_model2_hombres <- model2_hombres %>% tidy %>% 
+  mutate(rii=exp(estimate), #Esto es calcular la razón de prevalencias desde el estimador poisson
+         rii_infci=exp(estimate-1.96*std.error),
+         rii_supci=exp(estimate+1.96*std.error)) %>% # Calculamos IC 95%
+  filter(term!="(Intercept)") %>% #Nos quitamos el intercepto
+  select(rii, rii_infci, rii_supci) %>% #Limpiamos variables
+  mutate(SEXOa=1)
+coef_model2_hombres
+
+model2_mujeres<-glm(formula=diabetes~clase_tr, data=subset(dta,SEXOa==2), 
+                    family=poisson(link="log"))
+coef_model2_mujeres <- model2_mujeres %>% tidy %>% 
+  mutate(rii=exp(estimate), #Esto es calcular la razón de prevalencias desde el estimador poisson
+         rii_infci=exp(estimate-1.96*std.error),
+         rii_supci=exp(estimate+1.96*std.error)) %>% # Calculamos IC 95%
+  filter(term!="(Intercept)") %>% #Nos quitamos el intercepto
+  select(rii, rii_infci, rii_supci) %>% #Limpiamos variables
+  mutate(SEXOa=2)
+coef_model2_mujeres
+rii_regresion=rbind(coef_model2_hombres, coef_model2_mujeres)
+
+#Regresiones de Poisson aditivas para el SII
+model3_hombres<-glm(formula=diabetes~clase_tr, data=subset(dta,SEXOa==1), 
+                    family=poisson(link="identity"))
+coef_model3_hombres <- model3_hombres %>% tidy %>% 
+  mutate(sii=estimate*100, #Para expresar la diferencia en %
+         sii_infci=(estimate-1.96*std.error)*100,
+         sii_supci=(estimate+1.96*std.error)*100) %>% # Calculamos IC 95%
+  filter(term!="(Intercept)") %>% #Nos quitamos el intercepto
+  select(sii, sii_infci, sii_supci) %>% #Limpiamos variables
+  mutate(SEXOa=1)
+coef_model3_hombres
+
+model3_mujeres<-glm(formula=diabetes~clase_tr, data=subset(dta,SEXOa==2), 
+                    family=poisson(link="identity"))
+coef_model3_mujeres <- model3_mujeres %>% tidy %>% 
+  mutate(sii=estimate*100, #Para expresar la diferencia en %
+         sii_infci=(estimate-1.96*std.error)*100,
+         sii_supci=(estimate+1.96*std.error)*100) %>% # Calculamos IC 95%
+  filter(term!="(Intercept)") %>% #Nos quitamos el intercepto
+  select(sii, sii_infci, sii_supci) %>% #Limpiamos variables
+  mutate(SEXOa=2)
+coef_model3_mujeres
+sii_regresion=rbind(coef_model3_hombres, coef_model3_mujeres)
+
+regresion <- rii_regresion %>%
+  left_join(sii_regresion) %>%
+  mutate(method="regresion")
+
+comparacion_metodos<- regresion %>%
+  rbind(phe)
+comparacion_metodos
+#Veis que dan resultados parecidos
+
+
+#Como la regresión permite ajustar por variables, vamos a hacer las regresiones ajustadas por edad
+#RII
+mod_rii_ajustado_overall<-glm(formula=diabetes~clase_tr+edad+SEXOa, data=dta, 
+                              family=poisson(link="log"))
+coef_rii_ajustado_overall <- mod_rii_ajustado_overall %>% tidy %>% 
+  mutate(rii=exp(estimate), 
+         rii_infci=exp(estimate-1.96*std.error),
+         rii_supci=exp(estimate+1.96*std.error)) %>% 
+  filter(term=="clase_tr") %>% 
+  select(rii, rii_infci, rii_supci) %>% 
+  mutate(SEXOa=0)
+coef_rii_ajustado_overall
+
+mod_rii_ajustado_hombres<-glm(formula=diabetes~clase_tr+edad, data=subset(dta,SEXOa==1), 
+                    family=poisson(link="log"))
+coef_rii_ajustado_hombres <- mod_rii_ajustado_hombres %>% tidy %>% 
+  mutate(rii=exp(estimate), 
+         rii_infci=exp(estimate-1.96*std.error),
+         rii_supci=exp(estimate+1.96*std.error)) %>% 
+  filter(term=="clase_tr") %>% 
+  select(rii, rii_infci, rii_supci) %>% 
+  mutate(SEXOa=1)
+coef_rii_ajustado_hombres
+
+mod_rii_ajustado_mujeres<-glm(formula=diabetes~clase_tr+edad, data=subset(dta,SEXOa==2), 
+                    family=poisson(link="log"))
+coef_rii_ajustado_mujeres <- mod_rii_ajustado_mujeres %>% tidy %>% 
+  mutate(rii=exp(estimate), 
+         rii_infci=exp(estimate-1.96*std.error),
+         rii_supci=exp(estimate+1.96*std.error)) %>% 
+  filter(term=="clase_tr") %>% 
+  select(rii, rii_infci, rii_supci) %>% #Limpiamos variables
+  mutate(SEXOa=2)
+coef_rii_ajustado_mujeres
+rii_ajustado=coef_rii_ajustado_overall %>%
+  rbind(coef_rii_ajustado_hombres) %>%
+  rbind(coef_rii_ajustado_mujeres)
+rii_ajustado
+
+#SII
+mod_sii_ajustado_overall<-glm(formula=diabetes~clase_tr+edad, data=dta, 
+                              family=poisson(link="identity"),start = c(0, 1, 18))
+coef_sii_ajustado_overall <- mod_sii_ajustado_overall %>% tidy %>% 
+  mutate(sii=estimate*100, 
+         sii_infci=(estimate-1.96*std.error)*100,
+         sii_supci=(estimate+1.96*std.error)*100) %>%
+  filter(term=="clase_tr") %>% 
+  select(sii, sii_infci, sii_supci) %>% 
+  mutate(SEXOa=0)
+coef_sii_ajustado_overall
+
+mod_sii_ajustado_hombres<-glm(formula=diabetes~clase_tr+edad, data=subset(dta,SEXOa==1), 
+                    family=poisson(link="identity"), start = c(0, 1, 18))
+coef_sii_ajustado_hombres <- mod_sii_ajustado_hombres %>% tidy %>% 
+  mutate(sii=estimate*100, 
+         sii_infci=(estimate-1.96*std.error)*100,
+         sii_supci=(estimate+1.96*std.error)*100) %>%
+  filter(term=="clase_tr") %>% 
+  select(sii, sii_infci, sii_supci) %>% 
+  mutate(SEXOa=1)
+coef_sii_ajustado_hombres
+
+mod_sii_ajustado_mujeres<-glm(formula=diabetes~clase_tr+edad, data=subset(dta,SEXOa==2), 
+                    family=poisson(link="identity"), start = c(0, 1, 18))
+coef_sii_ajustado_mujeres <- mod_sii_ajustado_mujeres %>% tidy %>% 
+  mutate(sii=estimate*100,
+         sii_infci=(estimate-1.96*std.error)*100,
+         sii_supci=(estimate+1.96*std.error)*100) %>% 
+  filter(term=="clase_tr") %>% 
+  select(sii, sii_infci, sii_supci) %>%
+  mutate(SEXOa=2)
+coef_sii_ajustado_mujeres
+
+sii_ajustado=coef_sii_ajustado_overall %>%
+  rbind(coef_sii_ajustado_hombres) %>%
+  rbind(coef_sii_ajustado_mujeres)
+sii_ajustado
 
 
