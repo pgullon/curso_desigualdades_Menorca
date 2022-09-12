@@ -32,13 +32,13 @@ rm(list=ls()) # Esta función sirve para eliminar los datos y objetos que pudié
 
 
 
-load("datos/dta.RData") # Cargamos los últimos datos disponibles de la Encuesta Europea de Salud en España (EESE) 
+load("datos/dta.RData") # Cargamos los últimos datos disponibles de la Encuesta Europea de Salud en España del 2020 (EESE) 
 
 
 #### LIMPIEZA DE DATOS #####
 
-# Nos vamos a quedar solo con las variables que queremos
-# Para esta prueba vamos a calcular las desigualdades en diabetes; por tanto, nos vamos a quedar con: 
+# Nos vamos a quedar solo con las variables que queremos de la EESE
+# Para esta prueba vamos a calcular las desigualdades en diabetes. Por tanto, nos vamos a quedar con: 
 # Diabetes
 # Sexo
 # Edad
@@ -58,11 +58,11 @@ dta <-  dta %>% # El '%>%' nos permite indicar que las siguientes funciones se a
 ## Podemos interpretar lo de arriba (y los siguientes ejemplos) de la siguiente forma:
 ## Crea un objeto llamado "dta" (como nuestro objeto ya se llama "dta", lo sobreescribirá) que sea el objeto "dta" añadiendo
 ## la variable "diabetes" que tendrá valor 1 (DIABETES) cuando las variables G25a_12 o G25c_12 sean igual a 1, y que tendrá
-## valor 0 (NO DIABETES) cuando las variables G25a_12 y G"%c_12 sean igual a 2.
+## valor 0 (NO DIABETES) cuando las variables G25a_12 y G25c_12 sean igual a 2.
 
-# Sexo: la variable se llama SEXOa, 1=Hombre, 2=Mujer
+# Sexo: la variable se llama SEXOa, y los valores que toma son 1=Hombre, 2=Mujer
 
-# Edad: la tenemos que calcular porque no la coge como numérica
+# Edad: la tenemos que calcular porque no la coge como numérica al cargar la base de datos de la EESE
 dta <- dta %>%
   mutate(edad=as.numeric(EDADa)) # Como carga la variable como texto necesitamos crear una variable que interprete EDADa como numérica ('as.numeric')
   
@@ -92,8 +92,8 @@ dta <- dta %>%
 
 
 # Último código de la limpieza: 
-# Quitamos a los menores de edad y a todas las perosnas que tienen valores perdidos en nuestras variables
-# Eliminamos también duplicados, que al juntar con la encuesta de hogar puede haber
+# Quitamos a los menores de edad y a todas las personas que tienen valores perdidos (missings == NA) en nuestras variables
+# Eliminamos también los duplicados que se hayan podido producir al juntar con la encuesta de hogar
 dta <- dta %>%
   filter(edad>17) %>% # 'filter' permite filtrar variables por los valores que deseemos. En este caso, para quedarnos con los mayores de edad
   drop_na(diabetes) %>% # 'drop_na' elimina los valores perdidos o missings ('NA') de la columna que indiquemos
@@ -108,14 +108,14 @@ dta <- dta %>%
 ##### DESCRIPTIVOS DE DIABETES POR CLASE SOCIAL #######
 
 # Combinamos funciones de dplyr y sacamos la n y el %, y este comando nos sirve para otras categóricas
-dta %>% group_by(clase, diabetes) %>% # Agrupamos por las 2 variables 
-  summarise(n = n()) %>% # Calculamos la n en cada una de la celdas
+dta %>% group_by(clase, diabetes) %>% # Agrupamos por las dos variables 
+  summarise(n = n()) %>% # Calculamos la n en cada una de la celdas, es decir, cuántos diabéticos y no diabéticos hay por cada nivel de clase social
   spread(key = diabetes, value = n) %>% # Introducimos la función spread para dividir diabetes por columnas
   mutate(prop=(`1`/`0`)*100) %>% # Calculamos el % de diabeticos por clase social al dividir diabético y no diabeticos
   select(-`0`) %>% rename(n_diabetes=`1`) # Nos quitamos la columna de los 0 y renombramos la otra columna para dejarla bonita
 
 
-# ¿Quieres guardar esta tabla como un data frame y exportarlo? Muy fácil!
+# ¿Quieres guardar esta tabla como un data frame y exportarlo? ¡Muy fácil!
 clase_diabetes <- dta %>% group_by(clase, diabetes) %>% 
   summarise(n = n()) %>% 
   spread(key = diabetes, value = n) %>% 
@@ -127,7 +127,7 @@ write.csv(clase_diabetes, file="clase_diabetes.csv") # Así exportamos la tabla 
 
 
 
-#Vamos a hacer una regresión de Poisson y graficarla para verlo de otra forma
+#Vamos a hacer una regresión de Poisson, ajustando por edad y sexo, para ver la relación entre diabetes y clase social, y graficarla para verlo de otra forma
 
 dta$clase<-as.factor(dta$clase)
 model1<-glm(formula=diabetes~clase+SEXOa+edad, data=dta, #Ajustamos por edad y sexo en el modelo
@@ -148,7 +148,7 @@ coef_model1 <- model1 %>% tidy %>%
 coef_model1
 
 
-#Este código nos vale para hacer la escala logarítmica en la figura
+#Este código nos vale para convertir la escala del eje Y de la la figura en logarítmica 
 base_breaks <- function(n = 10){
   function(x) {
     axisTicks(log10(range(x, na.rm = TRUE)), log = TRUE, n = n)
@@ -158,11 +158,11 @@ base_breaks <- function(n = 10){
 
 
 #Aquí hacemos la figura!
-figura_modelo <-ggplot(coef_model1, aes(x=term, y=PR, group=group)) + 
-  geom_hline(yintercept = 1, lty=2)+
-  geom_line()+
-  geom_point(size=2, position=position_dodge(width = 0.75)) +
-  geom_errorbar(aes(ymin=infci, ymax=supci), width=.0, position = position_dodge(width=0.75))+
+figura_modelo <-ggplot(coef_model1, aes(x=term, y=PR, group=group)) + #'figura_modelo' será el objeto con nuestra figura, primero indicamos de dónde salen los datos, y luego cuáles son las variables X e Y que hay que representar
+  geom_hline(yintercept = 1, lty=2)+ #Añadimos una línea horizontal para marcar el "valor nulo" que, al ser razones de prevalencia, corresponde con Y=1.
+  geom_line()+ #Como hemos indicado antes cuáles son las variables, con esta función le indicamos que queremos que dibuje líneas tomando los valores de las variables
+  geom_point(size=2, position=position_dodge(width = 0.75)) + #Esto dibujará un punto tomando los valores de las variables
+  geom_errorbar(aes(ymin=infci, ymax=supci), width=.0, position = position_dodge(width=0.75))+ #Esto dibujará una línea que representará el intervalo de confianza de cada PR según la clase social
   labs(y="Razón de prevalencia (IC 95%)", x="Clase social ocupacional")+
   scale_y_continuous(trans='log10', breaks = pretty_breaks(5), limits = c(0.8, 2.77))+
   theme_bw()
@@ -176,7 +176,7 @@ ggsave(filename = "figura_modelo.pdf", plot = figura_modelo, width=10, height=7.
 ## MEDIDAS DE ASOCIACIÓN DE LAS DESIGUALDADES SOCIALES EN SALUD ## 
 
 #RELATIVE INDEX OF INEQUALITY (RII) Y SLOPE INDEX OF INEQUALITY (SII)
-#Primero calculamos variaciones de clase social que usaremos según el cálculo
+#Primero creamos variaciones de la variable clase social para poder calcular los índices
 dta <- dta %>%
   mutate(clase_cont=as.numeric(clase)) %>% #clase en continua para algunas de las medidas
   mutate(clase_inv=(clase_cont-7)*(-1)) %>% #clase invertida (clase 6 pasa a ser clase 1)
@@ -218,7 +218,7 @@ phe <- phe %>%
 phe
 
 
-# MÉTODO 2: HACIENDO REGRESIONES
+# MÉTODO 2: HACIENDO REGRESIONES (sin ajustar primero por otras variables)
 #Regresiones de Poisson multiplicativas para el RII
 model2_hombres<-glm(formula=diabetes~clase_tr, data=subset(dta,SEXOa==1), 
             family=poisson(link="log"))
@@ -264,15 +264,18 @@ coef_model3_mujeres <- model3_mujeres %>% tidy %>%
   filter(term!="(Intercept)") %>% #Nos quitamos el intercepto
   select(sii, sii_infci, sii_supci) %>% #Limpiamos variables
   mutate(SEXOa=2)
-coef_model3_mujeres
-sii_regresion=rbind(coef_model3_hombres, coef_model3_mujeres)
 
-regresion <- rii_regresion %>%
+coef_model3_mujeres
+
+sii_regresion=rbind(coef_model3_hombres, coef_model3_mujeres) #Esto añade las filas del modelo de mujeres debajo de las filas de los resultados del modelo de hombres
+
+regresion <- rii_regresion %>% #De esta forma, juntamos los resultados del RII e SII creando una variable que permita identificar los resultados de cada modelo
   left_join(sii_regresion) %>%
   mutate(method="regresion")
 
-comparacion_metodos<- regresion %>%
+comparacion_metodos<- regresion %>% #Aquí juntamos los resultados obtenidos con el método 1 para poder compararlos entre sí
   rbind(phe)
+
 comparacion_metodos
 #Veis que dan resultados parecidos
 
@@ -310,10 +313,13 @@ coef_rii_ajustado_mujeres <- mod_rii_ajustado_mujeres %>% tidy %>%
   filter(term=="clase_tr") %>% 
   select(rii, rii_infci, rii_supci) %>% #Limpiamos variables
   mutate(SEXOa=2)
+
 coef_rii_ajustado_mujeres
+
 rii_ajustado=coef_rii_ajustado_overall %>%
   rbind(coef_rii_ajustado_hombres) %>%
   rbind(coef_rii_ajustado_mujeres)
+
 rii_ajustado
 
 #SII
