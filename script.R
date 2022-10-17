@@ -222,8 +222,8 @@ phe
 
 # MÉTODO 2: HACIENDO REGRESIONES
 #Regresiones de Poisson multiplicativas para el RII
-model2_hombres<-glm(formula=diabetes~clase_tr, data=subset(dta,SEXOa==1), 
-            family=poisson(link="log"))
+model2_hombres<-glm(diabetes~clase_tr, data=subset(dta,SEXOa==1), 
+            family=poisson(link="log")) # se puede quitar "formula=", Rstudio interpreta qué variable es la respuestas y cuáles son las predictoras
 coef_model2_hombres <- model2_hombres %>% tidy %>% 
   mutate(rii=exp(estimate), #Esto es calcular la razón de prevalencias desde el estimador poisson
          rii_infci=exp(estimate-1.96*std.error),
