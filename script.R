@@ -135,6 +135,7 @@ model1<-glm(formula=diabetes~clase+SEXOa+edad, data=dta, #Ajustamos por edad y s
 summary(model1) # Así podemos ver en R las estimaciones del modelo
 
 #Sacamos las razones de prevalencia en tablita que ya sabes interpretar (clase 6 tiene 2.38 veces más prevalencia que clase 1)
+
 coef_model1 <- model1 %>% tidy %>% 
   mutate(PR=exp(estimate), #Esto es calcular la razón de prevalencias desde el estimador poisson
          infci=exp(estimate-1.96*std.error),
@@ -147,6 +148,7 @@ coef_model1 <- model1 %>% tidy %>%
   add_case(term="Clase1", PR=1, infci=1, supci=1, group=1, .before=1) #Añadimos el grupo de referencia en clase! 
 coef_model1
 
+exp(cbind(PR = coef(model1), confint(model1))) #para ver todos los PR y los IC que hemos quitado, pura curiosidad, no se guarda como objeto
 
 #Este código nos vale para hacer la escala logarítmica en la figura
 base_breaks <- function(n = 10){
@@ -242,6 +244,7 @@ coef_model2_mujeres <- model2_mujeres %>% tidy %>%
   mutate(SEXOa=2)
 coef_model2_mujeres
 rii_regresion=rbind(coef_model2_hombres, coef_model2_mujeres)
+rii_regresion
 
 #Regresiones de Poisson aditivas para el SII
 model3_hombres<-glm(formula=diabetes~clase_tr, data=subset(dta,SEXOa==1), 
@@ -266,6 +269,7 @@ coef_model3_mujeres <- model3_mujeres %>% tidy %>%
   mutate(SEXOa=2)
 coef_model3_mujeres
 sii_regresion=rbind(coef_model3_hombres, coef_model3_mujeres)
+sii_regresion
 
 regresion <- rii_regresion %>%
   left_join(sii_regresion) %>%
@@ -328,7 +332,7 @@ coef_sii_ajustado_overall <- mod_sii_ajustado_overall %>% tidy %>%
   mutate(SEXOa=0)
 coef_sii_ajustado_overall
 
-mod_sii_ajustado_hombres<-glm(formula=diabetes~clase_tr+edad, data=subset(dta,SEXOa==1), 
+mod_sii_ajustado_hombres<-glm(diabetes~clase_tr+edad, data=subset(dta,SEXOa==1), 
                     family=poisson(link="identity"), start = c(0, 1, 18))
 coef_sii_ajustado_hombres <- mod_sii_ajustado_hombres %>% tidy %>% 
   mutate(sii=estimate*100, 
@@ -339,7 +343,7 @@ coef_sii_ajustado_hombres <- mod_sii_ajustado_hombres %>% tidy %>%
   mutate(SEXOa=1)
 coef_sii_ajustado_hombres
 
-mod_sii_ajustado_mujeres<-glm(formula=diabetes~clase_tr+edad, data=subset(dta,SEXOa==2), 
+mod_sii_ajustado_mujeres<-glm(diabetes~clase_tr+edad, data=subset(dta,SEXOa==2), 
                     family=poisson(link="identity"), start = c(0, 1, 18))
 coef_sii_ajustado_mujeres <- mod_sii_ajustado_mujeres %>% tidy %>% 
   mutate(sii=estimate*100,
@@ -354,5 +358,4 @@ sii_ajustado=coef_sii_ajustado_overall %>%
   rbind(coef_sii_ajustado_hombres) %>%
   rbind(coef_sii_ajustado_mujeres)
 sii_ajustado
-
 
